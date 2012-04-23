@@ -1,4 +1,5 @@
 require 'yaml'
+require 'faraday'
 
 class Hash
   def deep_merge(other)
@@ -56,7 +57,8 @@ namespace :translate do
   desc "Show I18n keys that are missing in the config/locales/default_locale.yml YAML file"
   task :missing => :environment do
     missing = Translate::Keys.new.missing_keys.inject([]) do |keys, (key, filename)|
-      keys << "#{key} in \t  #{filename} is missing"
+      translation = key.gsub("label_", '').gsub('text_', '').gsub('_', ' ').humanize
+      keys << "#{key}: \"#{translation}\""
     end
     puts missing.present? ? missing.join("\n") : "No missing translations in the default locale file"
   end
@@ -104,24 +106,26 @@ namespace :translate do
   
   desc "Apply Google translate to auto translate all texts in locale ENV['FROM'] to locale ENV['TO']"
   task :google => :environment do
-    raise "Please specify FROM and TO locales as environment variables" if ENV['FROM'].blank? || ENV['TO'].blank?
+    raise "Please specify API_KEY, FROM and TO locales as environment variables" if ENV['FROM'].blank? || ENV['TO'].blank? && ENV['API_KEY'].blank?
 
-    # Depends on httparty gem
-    # http://www.robbyonrails.com/articles/2009/03/16/httparty-goes-foreign
     class GoogleApi
-      include HTTParty
-      base_uri 'ajax.googleapis.com'
-      def self.translate(string, to, from)
+      def self.translate(string, to, from, api_key)
         tries = 0
         begin
-          get("/ajax/services/language/translate",
-            :query => {:langpair => "#{from}|#{to}", :q => string, :v => 1.0},
-            :format => :json)
+          conn = Faraday.new(:url => 'https://www.googleapis.com')
+          puts "Translating... #{string}"
+          response = conn.get("/language/translate/v2") do |req|
+            req.params["source"] = from
+            req.params["target"] = to
+            req.params["q"] = string
+            req.params["key"] = api_key
+          end
+          JSON.parse(response.body)
         rescue 
           tries += 1
           puts("SLEEPING - retrying in 5...")
           sleep(5)
-          retry if tries < 10
+          retry if tries < 4
         end
       end
     end
@@ -136,8 +140,8 @@ namespace :translate do
       if !from_text.blank? && to_text.blank?
         print "#{key}: '#{from_text[0, 40]}' => "
         if !translations[from_text]
-          response = GoogleApi.translate(from_text, ENV['TO'], ENV['FROM'])
-          translations[from_text] = response["responseData"] && response["responseData"]["translatedText"]
+          response = GoogleApi.translate(from_text, ENV['TO'], ENV['FROM'], ENV['API_KEY'])
+          translations[from_text] = response["data"] && response["data"]["translations"].first["translatedText"]
         end
         if !(translation = translations[from_text]).blank?
           translation.gsub!(/\(\(([a-z_.]+)\)\)/i, '{{\1}}')

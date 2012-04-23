@@ -7,19 +7,32 @@
 
     <%= translate_javascript_includes %>
 <script type="text/javascript">
-      google.load("language", "1");
-
+      var currentFormId = null
       function getGoogleTranslation(id, text, from_language, to_language) {
-        text = text.replace(/\{\{/, '__').replace(/\}\}/, '__')
-        google.language.translate(text, from_language, to_language, function(result) {
-          if (!result.error) { 
-            result_text = result.translation.unescapeHTML().gsub(/__(.+)__/, function(match){
-              return '{{' + match[1] + '}}';
-            });
-            Form.Element.setValue(id, result_text);
-          }
-        });
+      currentFormId = id
+      var newScript = document.createElement('script');
+      newScript.type = 'text/javascript';
+      text = text.replace(/\{\{/, '__').replace(/\}\}/, '__')
+      var source = 'https://www.googleapis.com/language/translate/v2?key=<%= GOOGLE_TRANSLATE_API_KEY %>&source' + from_language + '&target=' + to_language + '&callback=translateText&q=' + text;
+      newScript.src = source;
 
+      // When we add this script to the head, the request is sent off.
+      document.getElementsByTagName('head')[0].appendChild(newScript);
+        
+
+    //     google.language.translate(text, from_language, to_language, function(result) {
+    //       if (!result.error) { 
+    //         result_text = result.translation.unescapeHTML().gsub(/__(.+)__/, function(match){
+    //           return '{{' + match[1] + '}}';
+    //         });
+    //         Form.Element.setValue(id, result_text);
+    //       }
+    //     });
+    }
+   
+    function translateText(response) {
+      console.log(currentFormId);
+      Form.Element.setValue(currentFormId, response.data.translations[0].translatedText);
     }
 
     /*
