@@ -136,6 +136,7 @@ namespace :translate do
     translations = {}
     Translate::Keys.new.i18n_keys(ENV['FROM']).each do |key|
       from_text = I18n.backend.send(:lookup, ENV['FROM'], key).to_s
+      original_text = from_text
       to_text = I18n.backend.send(:lookup, ENV['TO'], key)
       if !from_text.blank? && to_text.blank?
         print "#{key}: '#{from_text[0, 40]}' => "
@@ -143,14 +144,15 @@ namespace :translate do
           response = GoogleApi.translate(from_text, ENV['TO'], ENV['FROM'], ENV['API_KEY'])
           translations[from_text] = response["data"] && response["data"]["translations"].first["translatedText"]
         end
-        if !(translation = translations[from_text]).blank?
-          translation.gsub!(/\(\(([a-z_.]+)\)\)/i, '{{\1}}')
-          # Google translate sometimes replaces {{foobar}} with (()) foobar. We skip these
-          if translation !~ /\(\(\)\)/
+        translation = translations[from_text]
+        if translation.present?
+          # Google translate sometimes replaces {{foobar}} with {{}} foobar. We save english version.
+          if (translation !~ /\{\{/) && (translation !~ /\%\{/)
             puts "'#{translation[0, 40]}'"
             I18n.backend.store_translations(ENV['TO'].to_sym, Translate::Keys.to_deep_hash({key => translation}))
           else
-            puts "SKIPPING since interpolations were messed up: '#{translation[0,40]}'"
+            puts 'Skipping translation, interpolations found. Saving original'
+            I18n.backend.store_translations(ENV['TO'].to_sym, Translate::Keys.to_deep_hash({key => original_text}))
           end
         else
           puts "NO TRANSLATION - #{response.inspect}"
